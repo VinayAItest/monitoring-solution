@@ -1,0 +1,98 @@
+# ─── Namespace ────────────────────────────────
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring-app
+  labels:
+    app: monitoring-app
+
+---
+# ─── Deployment ───────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: monitoring-app
+  namespace: monitoring-app
+  labels:
+    app: monitoring-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: monitoring-app
+  template:
+    metadata:
+      labels:
+        app: monitoring-app
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: monitoring-app
+          image: monitoringacr.azurecr.io/monitoring-app:latest
+          ports:
+            - containerPort: 5000
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          env:
+            - name: ENV
+              value: "production"
+
+---
+# ─── Service ──────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: monitoring-app-svc
+  namespace: monitoring-app
+  labels:
+    app: monitoring-app
+spec:
+  selector:
+    app: monitoring-app
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 5000
+  type: LoadBalancer
+
+---
+# ─── Horizontal Pod Autoscaler ────────────────
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: monitoring-app-hpa
+  namespace: monitoring-app
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: monitoring-app
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

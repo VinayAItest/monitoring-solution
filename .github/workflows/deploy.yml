@@ -41,16 +41,46 @@ jobs:
           docker push ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest
           docker push ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
 
-      - name: ✅ Verify image in ACR
-        run: az acr repository list --name ${{ env.ACR_NAME }} --output table
+  # ─────────────────────────────────────
+  # JOB 2 — Terraform Infrastructure
+  # ─────────────────────────────────────
+  terraform:
+    name: 🏗 Terraform Apply
+    runs-on: ubuntu-latest
+    needs: build
+    defaults:
+      run:
+        working-directory: terraform
+    env:
+      ARM_CLIENT_ID:       ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET:   ${{ secrets.ARM_CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID:       ${{ secrets.ARM_TENANT_ID }}
+    steps:
+      - name: ✅ Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+
+      - name: 📦 Terraform Init
+        run: terraform init
+
+      - name: 👀 Terraform Plan
+        run: terraform plan
+
+      - name: 🚀 Terraform Apply
+        run: terraform apply -auto-approve
 
   # ─────────────────────────────────────
-  # JOB 2 — Deploy to Azure App Service
+  # JOB 3 — Deploy to Azure App Service
   # ─────────────────────────────────────
   deploy:
     name: 🚀 Deploy to Azure App Service
     runs-on: ubuntu-latest
-    needs: build
+    needs: [ build, terraform ]
     steps:
       - name: ✅ Checkout code
         uses: actions/checkout@v4
@@ -68,5 +98,27 @@ jobs:
 
       - name: ✅ Print app URL
         run: |
-          echo "✅ Deployed successfully!"
-          echo "🌐 URL: https://${{ env.APP_NAME }}.azurewebsites.net/health"
+          echo "✅ Deployed!"
+          echo "🌐 https://${{ env.APP_NAME }}.azurewebsites.net/health"
+
+  # ─────────────────────────────────────
+  # JOB 4 — Notify
+  # ─────────────────────────────────────
+  notify:
+    name: 📢 Notify Result
+    runs-on: ubuntu-latest
+    needs: [ build, terraform, deploy ]
+    if: always()
+    steps:
+      - name: ✅ Success
+        if: success()
+        run: |
+          echo "=========================================="
+          echo "✅ FULL PIPELINE SUCCESSFUL!"
+          echo "🐳 Image: shiyomonitoring001.azurecr.io/monitoring-app"
+          echo "🌐 URL: https://monitoring-webapp.azurewebsites.net"
+          echo "=========================================="
+      - name: ❌ Failure
+        if: failure()
+        run: |
+          echo "❌ PIPELINE FAILED - Check logs above"
